@@ -15,53 +15,46 @@ router.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-router.post('/shorten', (req, res) => {
+router.post('/shorten', async (req, res) => {
   const { url } = req.body
-
-  if (!url) {
-    return res.status(400).json({ error: 'url is required' })
-  }
-
-  try {
-    new URL(url)   // throws if url is malformed
-  } catch {
+  if (!url) return res.status(400).json({ error: 'url is required' })
+  try { new URL(url) } catch {
     return res.status(400).json({ error: 'invalid url' })
   }
-
-  const code = makeCode()
-  store.save(code, { url, clicks: 0, createdAt: new Date().toISOString() })
-
-  res.status(201).json({
-    code,
-    shortUrl: `http://localhost:3000/${code}`,
-    originalUrl: url
-  })
+  try {
+    const code = makeCode()
+    await store.save(code, {
+      url, clicks: 0, createdAt: new Date().toISOString()
+    })
+    res.status(201).json({ code, shortUrl: `http://localhost:3000/${code}`, originalUrl: url })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'could not save url' })
+  }
 })
 
-router.get('/:code/stats', (req, res) => {
-  const entry = store.get(req.params.code)
-
-  if (!entry) {
-    return res.status(404).json({ error: 'not found' })
+router.get('/:code/stats', async (req, res) => {
+  try {
+    const entry = await store.get(req.params.code)
+    if (!entry) return res.status(404).json({ error: 'not found' })
+    res.json({ code: req.params.code, originalUrl: entry.url,
+                clicks: entry.clicks, createdAt: entry.createdAt })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'could not fetch stats' })
   }
-
-  res.json({
-    code: req.params.code,
-    originalUrl: entry.url,
-    clicks: entry.clicks,
-    createdAt: entry.createdAt
-  })
 })
 
-router.get('/:code', (req, res) => {
-  const entry = store.get(req.params.code)
-
-  if (!entry) {
-    return res.status(404).json({ error: 'not found' })
+router.get('/:code', async (req, res) => {
+  try {
+    const entry = await store.get(req.params.code)
+    if (!entry) return res.status(404).json({ error: 'not found' })
+    await store.increment(req.params.code)
+    res.redirect(302, entry.url)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'could not redirect' })
   }
-
-  store.increment(req.params.code)
-  res.redirect(302, entry.url)
 })
 
 module.exports = router
